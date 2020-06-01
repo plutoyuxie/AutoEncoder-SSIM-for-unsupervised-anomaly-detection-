@@ -8,9 +8,9 @@ from glob import glob
 # setting
 BATCH_SIZE = 128
 D_DIM = 512
-TEST_DIR = r'D:\yujiawei\AE_defect\test_patches\good\image\*.png'
-CHECHPOINT_DIR = r'D:\yujiawei\AE_defect\chechpoints\tranp_ssim_d_512_epoch_1000\430-0.18871.hdf5'
-SAVE_DIR = r'D:\yujiawei\AE_defect\reconst\good'
+TEST_DIR = r'D:\user\AE_defect\test_patches\good\image\*.png'
+CHECHPOINT_DIR = r'D:\user\AE_defect\chechpoints\tranp_ssim_d_512_epoch_1000\430-0.18871.hdf5'
+SAVE_DIR = r'D:\user\AE_defect\reconst\good'
 
 # network
 autoencoder = AutoEncoder(D_DIM)
