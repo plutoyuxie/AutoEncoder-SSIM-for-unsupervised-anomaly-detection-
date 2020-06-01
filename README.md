@@ -5,6 +5,10 @@ This is a third party implementation of the paper **Improving Unsupervised Defec
 ## Requirement
 `tensorflow==2.2.0` <br>
 
+## Supplementary materials
+My notes https://www.yuque.com/books/share/8c7613f7-7571-4bfa-865a-689de3763c59?#
+password `ixgg`
+
 ## References
 @inproceedings{inproceedings,
 author = {Bergmann, Paul and Löwe, Sindy and Fauser, Michael and Sattlegger, David and Steger, Carsten},
