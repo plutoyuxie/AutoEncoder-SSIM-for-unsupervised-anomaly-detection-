@@ -3,6 +3,8 @@ from network import AutoEncoder
 
 import numpy as np
 from skimage.io import imread, imsave
+from skimage.metrics import structural_similarity as ssim
+from skimage import morphology
 from glob import glob
 
 # setting
@@ -28,7 +30,12 @@ for i in range(int(np.ceil(len(test_list)/BATCH_SIZE))):
         real_, rec_ = (test_patch[j]*255.).astype('uint8'), (decoded_imgs[j]*255.).astype('uint8')
         imsave(SAVE_DIR+'/'+str(i*BATCH_SIZE+j)+'_real.png', real_)
         imsave(SAVE_DIR+'/'+str(i*BATCH_SIZE+j)+'_rec.png', rec_)
-
-
+        diff = ssim(np.mean(real_, axis=2), np.mean(rec_, axis=2), win_size=11, full=True)[1] # RGB to GRAY
+        mask = np.zeros((128,128))
+        mask[diff<0.5] = 1
+        kernel = morphology.disk(4)
+        mask = morphology.opening(mask, kernel)
+        mask *= 255.
+        imsave(SAVE_DIR+'/'+str(i*BATCH_SIZE+j)+'_residual_map.png', mask)
 
 
