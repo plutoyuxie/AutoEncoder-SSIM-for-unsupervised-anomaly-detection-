@@ -93,7 +93,7 @@ def get_results(file_list, cfg):
         mask = morphology.opening(mask, kernel)
         mask *= 255
 
-        vis_img = set_img_color(test_img, mask, weight_foreground=0.3, grayscale=cfg.grayscale)
+        vis_img = set_img_color(test_img.copy(), mask, weight_foreground=0.3, grayscale=cfg.grayscale)
         
         cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_residual.png', mask)
         cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_origin.png', test_img)
