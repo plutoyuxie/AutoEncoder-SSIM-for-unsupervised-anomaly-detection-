@@ -1,41 +1,112 @@
-from tensorflow.keras.utils import Sequence
-from network import AutoEncoder
-
 import numpy as np
-from skimage.io import imread, imsave
 from skimage.metrics import structural_similarity as ssim
-from skimage import morphology
+from skimage import morphology 
 from glob import glob
+import cv2
+import os
 
-# setting
-BATCH_SIZE = 128
-D_DIM = 512
-TEST_DIR = r'D:\user\AE_defect\test_patches\good\image\*.png'
-CHECHPOINT_DIR = r'D:\user\AE_defect\chechpoints\tranp_ssim_d_512_epoch_1000\430-0.18871.hdf5'
-SAVE_DIR = r'D:\user\AE_defect\reconst\good'
+from utils import read_img, get_patch, patch2img, set_img_color
+from network import AutoEncoder
+import config as cfg
 
 # network
-autoencoder = AutoEncoder(D_DIM)
-autoencoder.load_weights(CHECHPOINT_DIR)
+autoencoder = AutoEncoder(cfg)
 
-# data
-test_list = glob(TEST_DIR)
-test_imgs = np.array([imread(filename) for filename in test_list])
-test_imgs = test_imgs.astype('float32') / 255.
+if cfg.weight_file:
+    autoencoder.load_weights(cfg.chechpoint_dir + '/' + cfg.weight_file)
+else:
+    file_list = os.listdir(cfg.chechpoint_dir)
+    latest_epoch = max([int(i.split('-')[0]) for i in file_list if 'hdf5' in i])
+    print('load latest weight file: ', latest_epoch)
+    autoencoder.load_weights(glob(cfg.chechpoint_dir + '/' + str(latest_epoch) + '*.hdf5')[0])
+autoencoder.summary()
 
-for i in range(int(np.ceil(len(test_list)/BATCH_SIZE))):
-    test_patch = test_imgs[i*BATCH_SIZE:(i+1)*BATCH_SIZE]
-    decoded_imgs = autoencoder.predict(test_patch)
-    for j in range(len(test_patch)):
-        real_, rec_ = (test_patch[j]*255.).astype('uint8'), (decoded_imgs[j]*255.).astype('uint8')
-        imsave(SAVE_DIR+'/'+str(i*BATCH_SIZE+j)+'_real.png', real_)
-        imsave(SAVE_DIR+'/'+str(i*BATCH_SIZE+j)+'_rec.png', rec_)
-        diff = ssim(np.mean(real_, axis=2), np.mean(rec_, axis=2), win_size=11, full=True)[1] # RGB to GRAY
-        mask = np.zeros((128,128))
-        mask[diff<0.5] = 1
+def get_residual_map(img_path, cfg):
+    test_img = read_img(img_path, cfg.grayscale)
+    
+    if test_img.shape[:2] != cfg.im_resize:
+        test_img = cv2.resize(test_img, cfg.im_resize)
+
+    test_img_ = test_img / 255.
+
+    if test_img.shape[:2] == cfg.patch_size:
+        test_img_ = np.expand_dims(test_img_, 0)
+        decoded_img = autoencoder.predict(test_img_)
+    else:
+        patches = get_patch(test_img_, cfg.patch_size[0], cfg.patch_size[1], cfg.stride)
+        patches = autoencoder.predict(patches)
+        decoded_img = patch2img(patches, cfg.im_resize, cfg.patch_size, cfg.stride)
+    
+    rec_img = np.reshape((decoded_img * 255.).astype('uint8'), test_img.shape)
+
+    if cfg.grayscale:
+        if cfg.use_ssim:
+            residual_map = 1 - ssim(test_img, rec_img, win_size=cfg.ssim_win_size, full=True)[1]
+        else: # l1 per pixel distance
+            residual_map = np.abs(test_img / 255. - rec_img / 255.)
+    else:
+        if cfg.use_ssim:
+            residual_map = 1 - ssim(np.mean(test_img, axis=2), np.mean(rec_img, axis=2),
+                                    win_size=cfg.ssim_win_size, full=True)[1]
+        else: # l1 per pixel distance
+            residual_map = np.mean(np.abs(test_img / 255. - rec_img / 255.), axis=2)
+    
+    return test_img, rec_img, residual_map
+
+
+def get_threshold(cfg):
+    if cfg.threshold:
+        threshold = cfg.threshold
+    else:
+        # estimate threshold
+        valid_good_list = glob(cfg.train_data_dir + '/*png')
+        num_valid_data = int(np.ceil(len(valid_good_list) * cfg.valid_data_ratio))
+        total_rec = []
+        for img_path in valid_good_list[-num_valid_data:]:
+            _, _, residual_map = get_residual_map(img_path, cfg)
+            total_rec.append(residual_map)
+        total_rec = np.array(total_rec)
+        threshold = float(np.percentile(total_rec, [cfg.percent]))
+    print('threshold: ', threshold)
+
+    return threshold
+
+
+def get_results(file_list, cfg):
+    if not os.path.exists(cfg.save_dir):
+        os.makedirs(cfg.save_dir)
+
+    for img_path in file_list:
+        img_name = img_path.split('\\')[-1][:-4]
+        c = '' if not cfg.sub_folder else k
+        test_img, rec_img, residual_map = get_residual_map(img_path, cfg)
+        
+        tmp_weight = np.ones(cfg.im_resize) * cfg.depress_edge_ratio
+        tmp_weight[cfg.depress_edge_pixel:cfg.im_resize[0]-cfg.depress_edge_pixel, 
+                cfg.depress_edge_pixel:cfg.im_resize[1]-cfg.depress_edge_pixel] = 1
+        residual_map *= tmp_weight
+
+        mask = np.zeros(cfg.im_resize)
+        mask[residual_map > threshold] = 1
+
         kernel = morphology.disk(4)
         mask = morphology.opening(mask, kernel)
-        mask *= 255.
-        imsave(SAVE_DIR+'/'+str(i*BATCH_SIZE+j)+'_residual_map.png', mask)
+        mask *= 255
+
+        vis_img = set_img_color(test_img, mask, weight_foreground=0.3, grayscale=cfg.grayscale)
+        
+        cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_residual.png', mask)
+        cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_origin.png', test_img)
+        cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_rec.png', rec_img)
+        cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_visual.png', vis_img)
 
 
+if __name__ == '__main__':
+    threshold = get_threshold(cfg)
+    if cfg.sub_folder:
+        for k in cfg.sub_folder:
+            test_list = glob(cfg.test_dir+'/'+k+'/*png')
+            get_results(test_list, cfg)
+    else:
+        test_list = glob(cfg.test_dir+'/*png')
+        get_results(test_list, cfg)

@@ -1,26 +1,44 @@
 from tensorflow.keras.layers import Input, Conv2D, Conv2DTranspose, LeakyReLU
 from tensorflow.keras.models import Model
 
-# network
-def AutoEncoder(d_dim):
-    input_img = Input(shape=(128, 128, 3))
-    hidden_layers = Conv2D(32, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(input_img)
-    hidden_layers = Conv2D(32, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(32, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(64, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(64, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(128, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(64, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(32, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    encoded = Conv2D(d_dim, (8, 8), strides=1, activation='linear', padding='valid')(hidden_layers)
 
-    hidden_layers = Conv2DTranspose(32, (8, 8), strides=1, activation=LeakyReLU(alpha=0.2), padding='valid')(encoded)
-    hidden_layers = Conv2D(64, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(128, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2DTranspose(64, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(64, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2DTranspose(32, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2D(32, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    hidden_layers = Conv2DTranspose(32, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(hidden_layers)
-    decoded = Conv2DTranspose(3, (4, 4), strides=2, activation='linear', padding='same')(hidden_layers)
+def AutoEncoder(cfg):
+    h_inner, w_inner = cfg.input_size[0]//2**4, cfg.input_size[1]//2**4
+
+    input_img = Input(shape=(cfg.input_size[0], cfg.input_size[1], cfg.input_channel))
+
+    if cfg.not_simplified:
+        h = Conv2D(cfg.flc, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(input_img)
+        h = Conv2D(cfg.flc, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc*2, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc*2, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc*4, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc*2, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        encoded = Conv2D(cfg.z_dim, (h_inner, w_inner), strides=1, activation='linear', padding='valid')(h)
+
+        h = Conv2DTranspose(cfg.flc, (h_inner, w_inner), strides=1, activation=LeakyReLU(alpha=0.2), padding='valid')(encoded)
+        h = Conv2D(cfg.flc*2, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc*4, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2DTranspose(cfg.flc*2, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc*2, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2DTranspose(cfg.flc, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2DTranspose(cfg.flc, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+
+    else:
+        h = Conv2D(cfg.flc, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(input_img)
+        h = Conv2D(cfg.flc*2, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc*4, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2D(cfg.flc*8, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        encoded = Conv2D(cfg.z_dim, (h_inner, w_inner), strides=1, activation='linear', padding='valid')(h)
+
+        h = Conv2DTranspose(cfg.flc*8, (h_inner, w_inner), strides=1, activation=LeakyReLU(alpha=0.2), padding='valid')(encoded)
+        h = Conv2DTranspose(cfg.flc*4, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2DTranspose(cfg.flc*2, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+        h = Conv2DTranspose(cfg.flc, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
+
+    decoded = Conv2DTranspose(cfg.input_channel, (4, 4), strides=2, activation='linear', padding='same')(h)
+
     return Model(input_img, decoded)

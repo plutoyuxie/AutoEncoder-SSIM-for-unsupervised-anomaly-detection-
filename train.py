@@ -1,97 +1,90 @@
-import tensorflow as tf
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.utils import Sequence
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
-from network import AutoEncoder
-
+import tensorflow as tf
 import numpy as np
-from skimage.io import imread
-import matplotlib.pyplot as plt
+import cv2
 from glob import glob
 import os
 
-# setting
-EPOCHS = 1000
-SAVE_MODEL_FREQUENCY = 10
-Early_STOP_N = 20
-BATCH_SIZE = 128
-D_DIM = 512
-DATASET_DIR = r'D:\user\AE_defect\train_patches\carpet\train\good\*.png'
-CHECHPOINT_DIR = r'D:\user\AE_defect\chechpoints\tranp_ssim_d_512_epoch_1000'
-LOAD_DATA_ONLY_ONCE = False
-USE_SSIM_LOSS = True
-SHOW_RESULT = True
+from network import AutoEncoder
+import config as cfg
+from utils import generate_image_list, augment_images, read_img
 
-# network
-autoencoder = AutoEncoder(D_DIM)
 
-# loss
-if USE_SSIM_LOSS:
-	@tf.function
-	def ssim_loss(gt, y_pred, max_val=1.0):
-		return 1 - tf.reduce_mean(tf.image.ssim(gt, y_pred, max_val=max_val))
+class data_flow(Sequence):
+    def __init__(self, filenames, batch_size, grayscale):
+        self.filenames = filenames
+        self.batch_size = batch_size
+        self.grayscale = grayscale
 
-	autoencoder.compile(optimizer=Adam(lr=2e-4, decay=1e-5), loss=ssim_loss, metrics=['mse'])  # or 'mse'\'mae'
-else:
-	autoencoder.compile(optimizer=Adam(lr=2e-4, decay=1e-5), loss='mse', metrics=['mae'])
-autoencoder.summary()
+    def __len__(self):
+        return int(np.ceil(len(self.filenames) / float(self.batch_size)))
 
-earlystopping = EarlyStopping(patience=Early_STOP_N)
-checkpoint = ModelCheckpoint(os.path.join(CHECHPOINT_DIR,'{epoch:02d}-{val_loss:.5f}.hdf5'), 
-                                    period=SAVE_MODEL_FREQUENCY, mode='auto', verbose=1, save_weights_only=True)
+    def __getitem__(self, idx):
+        batch_x = self.filenames[idx * self.batch_size:(idx + 1) * self.batch_size]
+        batch_x = np.array([read_img(filename, self.grayscale) for filename in batch_x])
+        
+        batch_x = batch_x / 255.
+        return batch_x, batch_x
 
 # data
-file_list = glob(DATASET_DIR)
+if cfg.aug_dir and cfg.do_aug:
+    if not os.path.exists(cfg.aug_dir):
+        os.makedirs(cfg.aug_dir)
 
-if LOAD_DATA_ONLY_ONCE:
-	''' loading the whole dataset into memory, which can save training time if the dataset is small'''
-	all_imgs = np.array([imread(filename) for filename in file_list])
-	all_imgs = all_imgs.astype('float32') / 255.
-	
-	autoencoder.fit(all_imgs, all_imgs, validation_split=1800/9800, batch_size=BATCH_SIZE, shuffle=True,
-					epochs=EPOCHS, callbacks=[checkpoint, earlystopping])
+    img_list = generate_image_list(cfg)
+    augment_images(img_list, cfg)
+
+dataset_dir = cfg.aug_dir if cfg.aug_dir else cfg.train_data_dir
+file_list = glob(dataset_dir + '/*')
+num_valid_data = int(np.ceil(len(file_list) * cfg.valid_data_ratio))
+data_train = data_flow(file_list[:-num_valid_data], cfg.batch_size, cfg.grayscale)
+data_valid = data_flow(file_list[-num_valid_data:], cfg.batch_size, cfg.grayscale)
+
+# loss
+if cfg.loss == 'ssim_loss':
+    
+    @tf.function
+    def ssim_loss(gt, y_pred, max_val=1.0):
+        return 1 - tf.reduce_mean(tf.image.ssim(gt, y_pred, max_val=max_val))
+    
+    loss = ssim_loss
+elif cfg.loss == 'ssim_l2_loss':
+    
+    @tf.function
+    def ssim_l2_loss(gt, y_pred, max_val=1.0):
+        ssim_loss = 1 - tf.reduce_mean(tf.image.ssim(gt, y_pred, max_val=max_val))
+        L2 = tf.reduce_mean(tf.square(gt - y_pred))
+        return ssim_loss + L2 * cfg.weight
+    
+    loss = ssim_l2_loss
 else:
-	class data_flow(Sequence):
-		def __init__(self, filenames, batch_size):
-			self.filenames = filenames
-			self.batch_size = batch_size
+    loss = 'mse'
 
-		def __len__(self):
-			return int(np.ceil(len(self.filenames) / float(self.batch_size)))
+# network
+autoencoder = AutoEncoder(cfg)
+optimizer = Adam(lr=cfg.lr, decay=cfg.decay)
+autoencoder.compile(optimizer=optimizer, loss=loss, metrics=['mae'] if loss == 'mse' else ['mse'])
+autoencoder.summary()
 
-		def __getitem__(self, idx):
-			batch_x = self.filenames[idx * self.batch_size:(idx + 1) * self.batch_size]
-			batch_x = np.array([imread(filename) for filename in batch_x])
-			batch_x = batch_x.astype('float32') / 255.
-			return batch_x, batch_x
+earlystopping = EarlyStopping(patience=cfg.early_stop_n)
 
-	data_train = data_flow(file_list[:-1800], BATCH_SIZE)
-	data_valid = data_flow(file_list[-1800:], BATCH_SIZE)
+checkpoint = ModelCheckpoint(os.path.join(cfg.chechpoint_dir, '{epoch:02d}-{val_loss:.5f}.hdf5'), save_best_only=True,
+                            period=cfg.save_model_frequency, mode='auto', verbose=1, save_weights_only=True)
 
-	autoencoder.fit(data_train, epochs=EPOCHS, validation_data=data_valid, callbacks=[checkpoint, earlystopping])
+if not os.path.exists(cfg.chechpoint_dir):
+    os.makedirs(cfg.chechpoint_dir)
+
+autoencoder.fit(data_train, epochs=cfg.epochs, validation_data=data_valid, callbacks=[checkpoint, earlystopping])
 
 # show reconstructed images
-if SHOW_RESULT:
-    if LOAD_DATA_ONLY_ONCE:
-	    x_test = all_imgs[-5:]
-    else:
-        test_imgs = file_list[-5:]
-        x_test = np.array([imread(filename) for filename in test_imgs])
-        x_test = x_test.astype('float32') / 255.
-
-    decoded_imgs = autoencoder.predict(x_test)
-    n = len(x_test)
-    plt.figure(figsize=(8, 3))
+if cfg.save_snapshot:
+    decoded_imgs = autoencoder.predict(data_valid)
+    n = len(decoded_imgs)
+    save_snapshot_dir = cfg.chechpoint_dir +'/snapshot/'
+    if not os.path.exists(save_snapshot_dir):
+        os.makedirs(save_snapshot_dir)
     for i in range(n):
-        # display original
-        ax = plt.subplot(2, n, i + 1)
-        plt.imshow(x_test[i].reshape(128, 128,3))
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
+        cv2.imwrite(save_snapshot_dir+str(i)+'_rec_valid.png', (decoded_imgs[i]*255).astype('uint8'))
 
-        # display reconstruction
-        ax = plt.subplot(2, n, i + n + 1)
-        plt.imshow(decoded_imgs[i].reshape(128, 128,3))
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
-    plt.show()

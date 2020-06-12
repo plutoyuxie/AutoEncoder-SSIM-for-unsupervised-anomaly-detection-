@@ -2,6 +2,10 @@
 
 This is a third party implementation of the paper **Improving Unsupervised Defect Segmentation by Applying Structural Similarity to Autoencoders**.<br>
 
+![avatar](./image/picture/bent_000_origin.png)
+![avatar](./image/picture/bent_000_rec.png)
+![avatar](./image/picture/bent_000_visual.png)
+
 ## Requirement
 `tensorflow==2.2.0` <br>
 
