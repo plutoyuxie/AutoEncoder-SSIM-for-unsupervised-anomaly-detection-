@@ -1,5 +1,5 @@
 # data_preprocessing
-train_data_dir = r'D:\yujiawei\dataset\mvtec_anomaly_detection\tile\train\good'
+train_data_dir = r'D:\usr\dataset\mvtec_anomaly_detection\tile\train\good'
 augment_num = 10000
 im_resize = (256, 256)
 patch_size = (128, 128) # network input size
@@ -10,7 +10,7 @@ p_rotate_crop = 1 # crop inner rotated image
 p_crop = 1 if patch_size != im_resize else 0
 p_horizonal_flip = 0.3
 p_vertical_flip = 0.3
-aug_dir = r'D:\yujiawei\anomaly detection\AE_results\train_patches\tile'
+aug_dir = r'D:\usr\anomaly detection\AE_results\train_patches\tile'
 
 # network
 input_size = patch_size
@@ -20,7 +20,7 @@ flc = 32 # number of the first hidden layer channels
 z_dim = 512 # Dimension of the latent space vector
 
 # training
-chechpoint_dir = r'D:\yujiawei\anomaly detection\AE_results\chechpoints\tile_l2' 
+chechpoint_dir = r'D:\usr\anomaly detection\AE_results\chechpoints\tile_l2' 
 epochs = 10000
 early_stop_n = 200
 save_model_frequency = 5
@@ -34,9 +34,9 @@ do_aug = False # whether to do data augmentation before training
 save_snapshot = True # whether to save reconstruction result of valid positive samples when training finished
 
 # testing
-test_dir = r'D:\yujiawei\dataset\mvtec_anomaly_detection\tile\test'
+test_dir = r'D:\usr\dataset\mvtec_anomaly_detection\tile\test'
 sub_folder = ['good', 'crack','rough','glue_strip','gray_stroke','oil']
-save_dir = r'D:\yujiawei\anomaly detection\AE_results\reconst\tile_l2'
+save_dir = r'D:\usr\anomaly detection\AE_results\reconst\tile_l2'
 weight_file = None # if set None, the latest weight file will be automatically selected 
 stride = 32 # step length of the sliding window
 threshold = None # if set None, threshold will be automatically estimated based on valid positive samples
