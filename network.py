@@ -3,11 +3,11 @@ from tensorflow.keras.models import Model
 
 
 def AutoEncoder(cfg):
-    h_inner, w_inner = cfg.input_size[0]//2**4, cfg.input_size[1]//2**4
+    h_inner, w_inner = cfg.patch_size//2**4, cfg.patch_size//2**4
 
-    input_img = Input(shape=(cfg.input_size[0], cfg.input_size[1], cfg.input_channel))
+    input_img = Input(shape=(cfg.patch_size, cfg.patch_size, cfg.input_channel))
 
-    if cfg.not_simplified:
+    if not cfg.simplified:
         h = Conv2D(cfg.flc, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(input_img)
         h = Conv2D(cfg.flc, (4, 4), strides=2, activation=LeakyReLU(alpha=0.2), padding='same')(h)
         h = Conv2D(cfg.flc, (3, 3), strides=1, activation=LeakyReLU(alpha=0.2), padding='same')(h)

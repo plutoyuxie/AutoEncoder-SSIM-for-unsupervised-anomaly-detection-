@@ -7,7 +7,10 @@ import os
 
 from utils import read_img, get_patch, patch2img, set_img_color
 from network import AutoEncoder
-import config as cfg
+from options import Options
+
+
+cfg = Options().parse()
 
 # network
 autoencoder = AutoEncoder(cfg)
@@ -23,78 +26,80 @@ autoencoder.summary()
 
 def get_residual_map(img_path, cfg):
     test_img = read_img(img_path, cfg.grayscale)
-    
-    if test_img.shape[:2] != cfg.im_resize:
-        test_img = cv2.resize(test_img, cfg.im_resize)
+
+    if test_img.shape[:2] != (cfg.im_resize, cfg.im_resize):
+        test_img = cv2.resize(test_img, (cfg.im_resize, cfg.im_resize))
 
     test_img_ = test_img / 255.
 
-    if test_img.shape[:2] == cfg.patch_size:
+    if test_img.shape[:2] == (cfg.patch_size, cfg.patch_size):
         test_img_ = np.expand_dims(test_img_, 0)
         decoded_img = autoencoder.predict(test_img_)
     else:
-        patches = get_patch(test_img_, cfg.patch_size[0], cfg.patch_size[1], cfg.stride)
+        patches = get_patch(test_img_, cfg.patch_size, cfg.stride)
         patches = autoencoder.predict(patches)
         decoded_img = patch2img(patches, cfg.im_resize, cfg.patch_size, cfg.stride)
-    
+
     rec_img = np.reshape((decoded_img * 255.).astype('uint8'), test_img.shape)
 
     if cfg.grayscale:
-        if cfg.use_ssim:
-            residual_map = 1 - ssim(test_img, rec_img, win_size=cfg.ssim_win_size, full=True)[1]
-        else: # l1 per pixel distance
-            residual_map = np.abs(test_img / 255. - rec_img / 255.)
+        ssim_residual_map = 1 - ssim(test_img, rec_img, win_size=cfg.ssim_win_size, full=True)[1]
+        l1_residual_map = np.abs(test_img / 255. - rec_img / 255.)
     else:
-        if cfg.use_ssim:
-            residual_map = 1 - ssim(np.mean(test_img, axis=2), np.mean(rec_img, axis=2),
-                                    win_size=cfg.ssim_win_size, full=True)[1]
-        else: # l1 per pixel distance
-            residual_map = np.mean(np.abs(test_img / 255. - rec_img / 255.), axis=2)
-    
-    return test_img, rec_img, residual_map
+        ssim_residual_map = ssim(test_img, rec_img, win_size=cfg.ssim_win_size, full=True, multichannel=True)[1]
+        ssim_residual_map = 1 - np.mean(ssim_residual_map, axis=2)
+        l1_residual_map = np.mean(np.abs(test_img / 255. - rec_img / 255.), axis=2)
+
+    return test_img, rec_img, ssim_residual_map, l1_residual_map
 
 
 def get_threshold(cfg):
-    if cfg.threshold:
-        threshold = cfg.threshold
-    else:
-        # estimate threshold
-        valid_good_list = glob(cfg.train_data_dir + '/*png')
-        num_valid_data = int(np.ceil(len(valid_good_list) * cfg.valid_data_ratio))
-        total_rec = []
-        for img_path in valid_good_list[-num_valid_data:]:
-            _, _, residual_map = get_residual_map(img_path, cfg)
-            total_rec.append(residual_map)
-        total_rec = np.array(total_rec)
-        threshold = float(np.percentile(total_rec, [cfg.percent]))
-    print('threshold: ', threshold)
+    print('estimating threshold...')
+    valid_good_list = glob(cfg.train_data_dir + '/*png')
+    num_valid_data = int(np.ceil(len(valid_good_list) * cfg.valid_data_ratio))
+    total_rec_ssim, total_rec_l1 = [], []
+    for img_path in valid_good_list[-num_valid_data:]:
+        _, _, ssim_residual_map, l1_residual_map = get_residual_map(img_path, cfg)
+        total_rec_ssim.append(ssim_residual_map)
+        total_rec_l1.append(l1_residual_map)
+    total_rec_ssim = np.array(total_rec_ssim)
+    total_rec_l1 = np.array(total_rec_l1)
+    ssim_threshold = float(np.percentile(total_rec_ssim, [cfg.percent]))
+    l1_threshold = float(np.percentile(total_rec_l1, [cfg.percent]))
+    print('ssim_threshold: %f, l1_threshold: %f' %(ssim_threshold, l1_threshold))
+    if not cfg.ssim_threshold:
+        cfg.ssim_threshold = ssim_threshold
+    if not cfg.l1_threshold:
+        cfg.l1_threshold = l1_threshold
 
-    return threshold
+
+def get_depressing_mask(cfg):
+    depr_mask = np.ones((cfg.im_resize, cfg.im_resize)) * cfg.depress_edge_ratio
+    depr_mask[cfg.depress_edge_pixel:cfg.im_resize-cfg.depress_edge_pixel, 
+            cfg.depress_edge_pixel:cfg.im_resize-cfg.depress_edge_pixel] = 1
+    cfg.depr_mask = depr_mask
 
 
 def get_results(file_list, cfg):
-    if not os.path.exists(cfg.save_dir):
-        os.makedirs(cfg.save_dir)
-
     for img_path in file_list:
         img_name = img_path.split('\\')[-1][:-4]
         c = '' if not cfg.sub_folder else k
-        test_img, rec_img, residual_map = get_residual_map(img_path, cfg)
-        
-        tmp_weight = np.ones(cfg.im_resize) * cfg.depress_edge_ratio
-        tmp_weight[cfg.depress_edge_pixel:cfg.im_resize[0]-cfg.depress_edge_pixel, 
-                cfg.depress_edge_pixel:cfg.im_resize[1]-cfg.depress_edge_pixel] = 1
-        residual_map *= tmp_weight
+        test_img, rec_img, ssim_residual_map, l1_residual_map = get_residual_map(img_path, cfg)
 
-        mask = np.zeros(cfg.im_resize)
-        mask[residual_map > threshold] = 1
+        ssim_residual_map *= cfg.depr_mask
+        if 'ssim' in cfg.loss:
+            l1_residual_map *= cfg.depr_mask
+
+        mask = np.zeros((cfg.im_resize, cfg.im_resize))
+        mask[ssim_residual_map > cfg.ssim_threshold] = 1
+        mask[l1_residual_map > cfg.l1_threshold] = 1
 
         kernel = morphology.disk(4)
         mask = morphology.opening(mask, kernel)
         mask *= 255
 
         vis_img = set_img_color(test_img.copy(), mask, weight_foreground=0.3, grayscale=cfg.grayscale)
-        
+
         cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_residual.png', mask)
         cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_origin.png', test_img)
         cv2.imwrite(cfg.save_dir+'/'+c+'_'+img_name+'_rec.png', rec_img)
@@ -102,7 +107,11 @@ def get_results(file_list, cfg):
 
 
 if __name__ == '__main__':
-    threshold = get_threshold(cfg)
+    if not cfg.ssim_threshold or not cfg.l1_threshold:
+        get_threshold(cfg)
+
+    get_depressing_mask(cfg)
+
     if cfg.sub_folder:
         for k in cfg.sub_folder:
             test_list = glob(cfg.test_dir+'/'+k+'/*png')
