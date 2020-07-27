@@ -43,7 +43,7 @@ class Options():
         self.parser.add_argument('--bg_mask', type=str, default=None, help='background mask, B means black, W means white')
 
     def parse(self):
-        DATASET_PATH = 'D:/yujiawei/dataset/mvtec_anomaly_detection'
+        DATASET_PATH = 'D:/user/dataset/mvtec_anomaly_detection'
         self.opt = self.parser.parse_args()
 
         if not self.opt.train_data_dir:
