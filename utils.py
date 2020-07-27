@@ -148,3 +148,29 @@ def set_img_color(img, predict_mask, weight_foreground, grayscale):
     img[np.where(predict_mask == 255)] = (0,0,255)
     cv2.addWeighted(img, weight_foreground, origin, (1 - weight_foreground), 0, img)
     return img
+
+
+def bg_mask(img, value, mode, grayscale):
+
+    if not grayscale:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _,thresh=cv2.threshold(img,value,255,mode)
+
+    def FillHole(mask):
+        contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        len_contour = len(contours)
+        contour_list = []
+        for i in range(len_contour):
+            drawing = np.zeros_like(mask, np.uint8)  # create a black image
+            img_contour = cv2.drawContours(drawing, contours, i, (255, 255, 255), -1)
+            contour_list.append(img_contour)
+
+        out = sum(contour_list)
+        return out
+
+    thresh = FillHole(thresh)
+    if type(thresh) is int:
+        return np.ones(img.shape)
+    mask_ = np.ones(thresh.shape)
+    mask_[np.where(thresh <= 127)] = 0
+    return mask_

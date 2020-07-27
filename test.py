@@ -5,7 +5,7 @@ from glob import glob
 import cv2
 import os
 
-from utils import read_img, get_patch, patch2img, set_img_color
+from utils import read_img, get_patch, patch2img, set_img_color, bg_mask
 from network import AutoEncoder
 from options import Options
 
@@ -22,13 +22,16 @@ else:
     latest_epoch = max([int(i.split('-')[0]) for i in file_list if 'hdf5' in i])
     print('load latest weight file: ', latest_epoch)
     autoencoder.load_weights(glob(cfg.chechpoint_dir + '/' + str(latest_epoch) + '*.hdf5')[0])
-autoencoder.summary()
+#autoencoder.summary()
 
 def get_residual_map(img_path, cfg):
     test_img = read_img(img_path, cfg.grayscale)
 
     if test_img.shape[:2] != (cfg.im_resize, cfg.im_resize):
         test_img = cv2.resize(test_img, (cfg.im_resize, cfg.im_resize))
+    if cfg.im_resize != cfg.mask_size:
+        tmp = (cfg.im_resize - cfg.mask_size)//2
+        test_img = test_img[tmp:tmp+cfg.mask_size, tmp:tmp+cfg.mask_size]
 
     test_img_ = test_img / 255.
 
@@ -43,10 +46,10 @@ def get_residual_map(img_path, cfg):
     rec_img = np.reshape((decoded_img * 255.).astype('uint8'), test_img.shape)
 
     if cfg.grayscale:
-        ssim_residual_map = 1 - ssim(test_img, rec_img, win_size=cfg.ssim_win_size, full=True)[1]
+        ssim_residual_map = 1 - ssim(test_img, rec_img, win_size=11, full=True)[1]
         l1_residual_map = np.abs(test_img / 255. - rec_img / 255.)
     else:
-        ssim_residual_map = ssim(test_img, rec_img, win_size=cfg.ssim_win_size, full=True, multichannel=True)[1]
+        ssim_residual_map = ssim(test_img, rec_img, win_size=11, full=True, multichannel=True)[1]
         ssim_residual_map = 1 - np.mean(ssim_residual_map, axis=2)
         l1_residual_map = np.mean(np.abs(test_img / 255. - rec_img / 255.), axis=2)
 
@@ -56,7 +59,7 @@ def get_residual_map(img_path, cfg):
 def get_threshold(cfg):
     print('estimating threshold...')
     valid_good_list = glob(cfg.train_data_dir + '/*png')
-    num_valid_data = int(np.ceil(len(valid_good_list) * cfg.valid_data_ratio))
+    num_valid_data = int(np.ceil(len(valid_good_list) * 0.2))
     total_rec_ssim, total_rec_l1 = [], []
     for img_path in valid_good_list[-num_valid_data:]:
         _, _, ssim_residual_map, l1_residual_map = get_residual_map(img_path, cfg)
@@ -74,9 +77,8 @@ def get_threshold(cfg):
 
 
 def get_depressing_mask(cfg):
-    depr_mask = np.ones((cfg.im_resize, cfg.im_resize)) * cfg.depress_edge_ratio
-    depr_mask[cfg.depress_edge_pixel:cfg.im_resize-cfg.depress_edge_pixel, 
-            cfg.depress_edge_pixel:cfg.im_resize-cfg.depress_edge_pixel] = 1
+    depr_mask = np.ones((cfg.mask_size, cfg.mask_size)) * 0.2
+    depr_mask[5:cfg.mask_size-5, 5:cfg.mask_size-5] = 1
     cfg.depr_mask = depr_mask
 
 
@@ -90,10 +92,15 @@ def get_results(file_list, cfg):
         if 'ssim' in cfg.loss:
             l1_residual_map *= cfg.depr_mask
 
-        mask = np.zeros((cfg.im_resize, cfg.im_resize))
+        mask = np.zeros((cfg.mask_size, cfg.mask_size))
         mask[ssim_residual_map > cfg.ssim_threshold] = 1
         mask[l1_residual_map > cfg.l1_threshold] = 1
-
+        if cfg.bg_mask == 'B':
+            bg_m = bg_mask(test_img.copy(), 50, cv2.THRESH_BINARY, cfg.grayscale)
+            mask *= bg_m
+        elif cfg.bg_mask == 'W':
+            bg_m = bg_mask(test_img.copy(), 200, cv2.THRESH_BINARY_INV, cfg.grayscale)
+            mask *= bg_m
         kernel = morphology.disk(4)
         mask = morphology.opening(mask, kernel)
         mask *= 255
@@ -114,8 +121,8 @@ if __name__ == '__main__':
 
     if cfg.sub_folder:
         for k in cfg.sub_folder:
-            test_list = glob(cfg.test_dir+'/'+k+'/*png')
+            test_list = glob(cfg.test_dir+'/'+k+'/*')
             get_results(test_list, cfg)
     else:
-        test_list = glob(cfg.test_dir+'/*png')
+        test_list = glob(cfg.test_dir+'/*')
         get_results(test_list, cfg)
